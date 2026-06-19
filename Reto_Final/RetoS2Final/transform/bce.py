@@ -1,6 +1,68 @@
-import pandas as pd
-import sqlite3
+"""
+=========================================================
+ MÓDULO DE INGESTA Y LIMPIEZA - FUENTES BCE
+=========================================================
+Reto: Limpieza fuentes BCE
+Objetivo: Implementar funciones de limpieza para PIB real, PIB nominal,
+VAB, petróleo/riesgo país e IEE, y cargar las cinco tablas resultantes
+(capa Silver) en la base de datos SQLite del proyecto.
+
+NOTA SOBRE RUTAS (fix del error "No such file or directory"):
+---------------------------------------------------------
+El error original ocurría porque el script usaba rutas RELATIVAS
+('datos_macroentorno/archivo.xlsx'). Una ruta relativa depende de cuál
+sea el "directorio de trabajo" (working directory) desde el que se
+ejecuta Python, y en PyCharm eso varía según la configuración de
+ejecución (Run Configuration) que se use.
+
+La solución: todas las rutas se construyen a partir de la ubicación
+del propio archivo bce.py (usando __file__), subiendo un nivel hasta
+la raíz del proyecto (RetoS2Final) y entrando a datos_macroentorno/.
+Así el script funciona sin importar desde dónde lo ejecutes (botón
+Run de PyCharm, terminal, consola interactiva, etc.).
+"""
+
 import os
+import sqlite3
+import sys
+
+import pandas as pd
+
+# =========================================================
+# RUTAS BASE DEL PROYECTO (independientes del working directory)
+# =========================================================
+
+# Carpeta donde está este archivo: .../RetoS2Final/transform
+DIR_TRANSFORM = os.path.dirname(os.path.abspath(__file__))
+
+# Raíz del proyecto: .../RetoS2Final
+DIR_RAIZ = os.path.dirname(DIR_TRANSFORM)
+
+# Carpeta de datos crudos (capa Bronze)
+DIR_DATOS = os.path.join(DIR_RAIZ, 'datos_macroentorno')
+
+# Base de datos de salida (capa Silver)
+BD_PATH = os.path.join(DIR_TRANSFORM, 'pipeline_utpl.db')
+
+
+# =========================================================
+# UTILIDAD: verificación amistosa de archivos de entrada
+# =========================================================
+
+def _verificar_archivo(ruta):
+    """
+    Comprueba que el archivo exista antes de intentar leerlo.
+    Lanza un FileNotFoundError con un mensaje claro indicando
+    exactamente qué archivo falta y en qué carpeta se esperaba.
+    """
+    if not os.path.isfile(ruta):
+        raise FileNotFoundError(
+            f"No se encontró el archivo esperado:\n"
+            f"   {ruta}\n"
+            f"   Verifica que el archivo exista dentro de la carpeta "
+            f"'datos_macroentorno/' del proyecto."
+        )
+    return ruta
 
 
 # =========================================================
@@ -8,7 +70,10 @@ import os
 # =========================================================
 
 def procesar_pib_constante(ruta_excel):
+    """PIB real (constante) per cápita - hoja 'PIB pc real'."""
     print("-> Iniciando limpieza del PIB Real Anual...")
+    _verificar_archivo(ruta_excel)
+
     datos_crudos = pd.read_excel(ruta_excel, sheet_name='PIB pc real', engine='openpyxl')
     fila_titulos = datos_crudos[datos_crudos.iloc[:, 0] == 'Años'].index[0]
 
@@ -31,7 +96,10 @@ def procesar_pib_constante(ruta_excel):
 
 
 def procesar_pib_corriente(ruta_excel):
+    """PIB nominal per cápita - hoja índice 5 ('PIB pc nominal')."""
     print("-> Extrayendo PIB Nominal...")
+    _verificar_archivo(ruta_excel)
+
     # Uso del índice 5 para evitar errores por espacios en el nombre de la hoja
     datos_crudos = pd.read_excel(ruta_excel, sheet_name=5, engine='openpyxl')
     fila_titulos = datos_crudos[datos_crudos.iloc[:, 0] == 'Años'].index[0]
@@ -55,7 +123,10 @@ def procesar_pib_corriente(ruta_excel):
 
 
 def limpiar_wti_embi(ruta_csv):
+    """Petróleo WTI y riesgo país (EMBI) - serie diaria."""
     print("-> Procesando WTI y Riesgo País...")
+    _verificar_archivo(ruta_csv)
+
     df_diario = pd.read_csv(ruta_csv)
     df_diario.rename(columns={'Período': 'fecha'}, inplace=True)
     df_diario['fecha'] = pd.to_datetime(df_diario['fecha'])
@@ -63,7 +134,10 @@ def limpiar_wti_embi(ruta_csv):
 
 
 def formatear_iee(ruta_csv):
+    """Índice de Expectativas Económicas (IEE) - serie mensual."""
     print("-> Normalizando IEE Mensual...")
+    _verificar_archivo(ruta_csv)
+
     df_mensual = pd.read_csv(ruta_csv)
     df_mensual.columns = [c.lower() for c in df_mensual.columns]
     df_mensual['fecha'] = pd.to_datetime(df_mensual['fecha'], format='%Y-%m-%d')
@@ -71,7 +145,10 @@ def formatear_iee(ruta_csv):
 
 
 def preparar_vab_regional(ruta_csv):
+    """Valor Agregado Bruto (VAB) provincial."""
     print("-> Estructurando VAB Provincial...")
+    _verificar_archivo(ruta_csv)
+
     df_prov = pd.read_csv(ruta_csv)
     df_prov.columns = [c.lower() for c in df_prov.columns]
     df_prov.rename(columns={'año': 'anio'}, inplace=True)
@@ -84,7 +161,7 @@ def preparar_vab_regional(ruta_csv):
 
 def guardar_en_sqlite(dataframe, tabla_destino, conx):
     dataframe.to_sql(tabla_destino, conx, if_exists='replace', index=False)
-    print(f"   [OK] Tabla '{tabla_destino}' creada con éxito.")
+    print(f"   [OK] Tabla '{tabla_destino}' creada con éxito ({len(dataframe)} filas).")
 
 
 # =========================================================
@@ -92,35 +169,62 @@ def guardar_en_sqlite(dataframe, tabla_destino, conx):
 # =========================================================
 
 if __name__ == '__main__':
-    # Directorios fijos
-    archivo_pib = 'datos_macroentorno/retropolacion_1965_2024p.xlsx'
-    archivo_wti = 'datos_macroentorno/petroleo_riesgo.csv'
-    archivo_iee = 'datos_macroentorno/iee.csv'
-    archivo_vab = 'datos_macroentorno/vab_provincial.csv'
+    # Rutas de los archivos crudos (capa Bronze), resueltas de forma
+    # absoluta a partir de la ubicación de este script.
+    archivo_pib = os.path.join(DIR_DATOS, 'retropolacion_1965_2024p.xlsx')
+    archivo_wti = os.path.join(DIR_DATOS, 'petroleo_riesgo.csv')
+    archivo_iee = os.path.join(DIR_DATOS, 'iee.csv')
+    archivo_vab = os.path.join(DIR_DATOS, 'vab_provincial.csv')
 
-    bd_path = 'pipeline_utpl.db'
-    conexion_bd = sqlite3.connect(bd_path)
+    conexion_bd = sqlite3.connect(BD_PATH)
+
+    # Cada tarea es independiente: (nombre, función, ruta, tabla destino)
+    tareas = [
+        ('PIB real',     procesar_pib_constante, archivo_pib, 'fact_macro_anual'),
+        ('PIB nominal',  procesar_pib_corriente,  archivo_pib, 'fact_pib_nominal'),
+        ('WTI/Riesgo',   limpiar_wti_embi,        archivo_wti, 'fact_indicadores_diarios'),
+        ('IEE',          formatear_iee,           archivo_iee, 'fact_iee'),
+        ('VAB regional', preparar_vab_regional,   archivo_vab, 'fact_vab'),
+    ]
+
+    print(f"Carpeta de datos: {DIR_DATOS}")
+    print(f"Base de datos:    {BD_PATH}\n")
+
+    exitosas = []
+    fallidas = []
 
     try:
-        # FASE 1: Procesamiento y Limpieza
-        tabla_pib_real = procesar_pib_constante(archivo_pib)
-        tabla_pib_nom = procesar_pib_corriente(archivo_pib)
-        tabla_diaria = limpiar_wti_embi(archivo_wti)
-        tabla_iee = formatear_iee(archivo_iee)
-        tabla_vab = preparar_vab_regional(archivo_vab)
+        for nombre, funcion, ruta, tabla in tareas:
+            try:
+                df_resultado = funcion(ruta)
+                guardar_en_sqlite(df_resultado, tabla, conexion_bd)
+                exitosas.append(tabla)
+            except FileNotFoundError as e:
+                print(f"   [OMITIDO] {nombre}: {e}")
+                fallidas.append((nombre, ruta))
+            except Exception as e:
+                print(f"   [ERROR] {nombre} falló por un motivo distinto a archivo faltante: {e}")
+                fallidas.append((nombre, ruta))
 
-        print("\n--- INICIANDO CARGA A BASE DE DATOS ---")
+        print("\n--- RESUMEN DE EJECUCIÓN ---")
+        print(f"Tablas cargadas correctamente: {len(exitosas)}/5 -> {exitosas}")
 
-        # FASE 2: Inserción en la BD
-        guardar_en_sqlite(tabla_pib_real, 'fact_macro_anual', conexion_bd)
-        guardar_en_sqlite(tabla_pib_nom, 'fact_pib_nominal', conexion_bd)
-        guardar_en_sqlite(tabla_diaria, 'fact_indicadores_diarios', conexion_bd)
-        guardar_en_sqlite(tabla_iee, 'fact_iee', conexion_bd)
-        guardar_en_sqlite(tabla_vab, 'fact_vab', conexion_bd)
+        if fallidas:
+            print(f"\nTablas pendientes (archivo no encontrado u otro error): {len(fallidas)}")
+            for nombre, ruta in fallidas:
+                print(f"   - {nombre}: se esperaba en {ruta}")
+            print(
+                "\nColoca los archivos CSV/XLSX faltantes dentro de la carpeta "
+                f"'{DIR_DATOS}' y vuelve a ejecutar este script. "
+                "Las tablas ya cargadas no se pierden: cada una se guarda en "
+                "cuanto su archivo de origen está disponible."
+            )
+        else:
+            print("\n*** EJECUCIÓN FINALIZADA: Las 5 tablas están listas en la Capa Silver ***")
 
-        print("\n*** EJECUCIÓN FINALIZADA: Las 5 tablas están listas en la Capa Silver ***")
-
-    except Exception as error_pipeline:
-        print(f"Se detectó un problema en la ejecución: {error_pipeline}")
     finally:
         conexion_bd.close()
+
+    # Código de salida útil si este script se llama desde otro proceso/CI:
+    # 0 si las 5 tablas se cargaron, 1 si falta alguna.
+    sys.exit(0 if not fallidas else 1)
