@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="PYTHON_MODULE" version="4">
+  <component name="NewModuleRootManager">
+<<<<<<< HEAD:Reto_Final/RetoS2Final/.idea/RetoS2Final.iml
+    <content url="file://$MODULE_DIR$">
+      <excludeFolder url="file://$MODULE_DIR$/.venv" />
+    </content>
+    <orderEntry type="jdk" jdkName="Python 3.14 (RetoS2Final)" jdkType="Python SDK" />
+=======
+    <content url="file://$MODULE_DIR$" />
+    <orderEntry type="inheritedJdk" />
+>>>>>>> 84cda58 (Limpieza, DB y modeloRelacional):macroentorno ecuatoriano/.idea/macroentorno ecuatoriano.iml
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+  <component name="PyDocumentationSettings">
+    <option name="format" value="PLAIN" />
+    <option name="myDocStringFormat" value="Plain" />
+  </component>
+</module>
